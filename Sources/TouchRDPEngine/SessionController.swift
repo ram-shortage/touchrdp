@@ -859,11 +859,11 @@ public final class SessionController: ObservableObject, RDPSessionDelegate {
                                  previousPin: PinnedCertRecord? = nil) {
         let candidate = PendingCertReview(info: info, kind: kind, previousPin: previousPin)
         if let current = pendingCertReview, current.isSameReview(as: candidate) {
-            Self.certLog.notice("raise: same review already pending (epoch \(current.epoch)) — no-op")
+            Self.certLog.notice("raise: same review already pending (epoch \(current.epoch, privacy: .public)) — no-op")
             return
         }
         certReviewEpoch += 1
-        Self.certLog.notice("raise: \(String(describing: kind)) for \(info.host):\(info.port) epoch \(self.certReviewEpoch) state=\(String(describing: self.state))")
+        Self.certLog.notice("raise: \(String(describing: kind), privacy: .public) for \(info.host, privacy: .public):\(info.port, privacy: .public) epoch \(self.certReviewEpoch, privacy: .public) state=\(String(describing: self.state), privacy: .public)")
         let review = PendingCertReview(info: info, kind: kind, previousPin: previousPin,
                                        epoch: certReviewEpoch)
         pendingCertReview = review
@@ -883,11 +883,11 @@ public final class SessionController: ObservableObject, RDPSessionDelegate {
         // Guard against a cert remembered for a host the connection no longer points at.
         if let last = lastRejectedCert, let connection,
            last.info.host == connection.host, last.info.port == connection.port {
-            Self.certLog.notice("review: re-opening remembered cert for \(last.info.host)")
+            Self.certLog.notice("review: re-opening remembered cert for \(last.info.host, privacy: .public)")
             raiseCertReview(info: last.info, kind: last.kind, previousPin: last.previousPin)
             return
         }
-        Self.certLog.notice("review: nothing remembered (last=\(self.lastRejectedCert?.info.host ?? "nil") conn=\(self.connection?.host ?? "nil")) — falling back to retry")
+        Self.certLog.notice("review: nothing remembered (last=\(self.lastRejectedCert?.info.host ?? "nil", privacy: .public) conn=\(self.connection?.host ?? "nil", privacy: .public)) — falling back to retry")
         retry()
     }
 
@@ -897,8 +897,12 @@ public final class SessionController: ObservableObject, RDPSessionDelegate {
     /// path that pins a cert.
     public func acceptPendingCertAndReconnect() {
         guard let review = pendingCertReview else { return }
-        Self.certLog.notice("accept: pinning \(review.info.host):\(review.info.port)")
+        Self.certLog.notice("accept: pinning \(review.info.host, privacy: .public):\(review.info.port, privacy: .public) fp=\(review.info.fingerprintSHA256, privacy: .public)")
         trustStore.pin(review.info)
+        // Read the pin straight back so a log shows whether the approval actually took.
+        let after = trustStore.evaluate(review.info)
+        let storeError = (trustStore as? FileCertificateTrustStore)?.lastError
+        Self.certLog.notice("accept: store now says \(String(describing: after), privacy: .public) storeError=\(storeError.map { String(describing: $0) } ?? "none", privacy: .public)")
         pendingCertReview = nil
         lastRejectedCert = nil   // #32: trusted now — nothing left to review
         // #32: Cancel → Review Certificate → Trust & Connect. The Cancel went through
@@ -919,7 +923,7 @@ public final class SessionController: ObservableObject, RDPSessionDelegate {
     /// #32: `lastRejectedCert` deliberately SURVIVES a decline — dismissing the sheet is
     /// exactly the case where the user then reaches for "Review Certificate" again.
     public func declinePendingCert() {
-        Self.certLog.notice("decline: \(self.pendingCertReview?.info.host ?? "nil")")
+        Self.certLog.notice("decline: \(self.pendingCertReview?.info.host ?? "nil", privacy: .public)")
         pendingCertReview = nil
         // The sheet can be declined before the bridge's failure callback reaches
         // the main queue. Keep the certificate recovery action available even then.
@@ -1030,11 +1034,15 @@ public final class SessionController: ObservableObject, RDPSessionDelegate {
             // The user chose "Don't verify" for this connection: accept without
             // consulting or touching the trust store, so turning the mode off later
             // brings back exactly the pins that were there before.
-            Self.certLog.notice("verify: \(info.host):\(info.port) accepted unverified (mode=ignore)")
+            Self.certLog.notice("verify: \(info.host, privacy: .public):\(info.port, privacy: .public) accepted unverified (mode=ignore)")
             return true
         }
         let decision = trustStore.evaluate(info)
-        Self.certLog.notice("verify: \(info.host):\(info.port) fp=\(info.fingerprintSHA256.prefix(11))… mismatch=\(info.hostMismatch) mode=\(mode.rawValue) -> \(String(describing: decision))")
+        // Certificate details are public data (the server sends them to anyone who
+        // connects), so they're logged in full to make trust problems diagnosable with
+        // `log stream --predicate 'subsystem == "com.touchrdp.app"'`.
+        let pinned = trustStore.pinnedRecord(host: info.host, port: info.port)?.fingerprintSHA256 ?? "none"
+        Self.certLog.notice("verify: \(info.host, privacy: .public):\(info.port, privacy: .public) cn=\(info.commonName, privacy: .public) fp=\(info.fingerprintSHA256, privacy: .public) pinned=\(pinned, privacy: .public) mismatch=\(info.hostMismatch, privacy: .public) changedFlag=\(info.changed, privacy: .public) mode=\(mode.rawValue, privacy: .public) -> \(String(describing: decision), privacy: .public)")
         switch decision {
         case .trusted:
             // Already pinned by an earlier explicit approval. Honor it.

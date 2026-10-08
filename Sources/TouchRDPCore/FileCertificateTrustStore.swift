@@ -75,6 +75,7 @@ public final class FileCertificateTrustStore: CertificateTrustStore, @unchecked 
         pins[key] = record
         let snapshot = pins
         pinsLock.unlock()
+        Self.logger.notice("pin \(key, privacy: .public) fp=\(info.fingerprintSHA256, privacy: .public) -> \(self.storeURL.path, privacy: .public)")
         save(snapshot)
     }
 
@@ -86,6 +87,7 @@ public final class FileCertificateTrustStore: CertificateTrustStore, @unchecked 
     }
 
     public func remove(host: String, port: Int) {
+        Self.logger.notice("remove \(self.makeKey(host: host, port: port), privacy: .public)")
         pinsLock.lock()
         pins.removeValue(forKey: makeKey(host: host, port: port))
         let snapshot = pins
