@@ -95,6 +95,10 @@ public struct Connection: Identifiable, Codable, Equatable, Sendable {
     /// the remote side, so a mistimed use types the password into whatever window is
     /// open. Only enable it for hosts where that risk is acceptable. See SECURITY.md.
     public var passwordTypingEnabled: Bool
+    /// How this connection treats the server's certificate. `.ask` (default) is the
+    /// review-before-trust flow; the other modes trade that safety for convenience and
+    /// are only ever chosen explicitly in the editor. See SECURITY.md.
+    public var certificateMode: CertificateCheckMode
 
     /// F-15: hard cap on the override list — enforced in the model (init + decode),
     /// not just the editor UI.
@@ -117,7 +121,8 @@ public struct Connection: Identifiable, Codable, Equatable, Sendable {
                 keyboardLayout: KeyboardLayoutPreset = .auto,
                 keyOverrides: [KeyOverride] = [],
                 videoDecoding: VideoDecodingSettings = .default,
-                passwordTypingEnabled: Bool = false) {
+                passwordTypingEnabled: Bool = false,
+                certificateMode: CertificateCheckMode = .ask) {
         self.id = id; self.name = name; self.host = host; self.port = port
         self.username = username; self.domain = domain; self.security = security
         self.display = display; self.gateway = gateway
@@ -137,6 +142,7 @@ public struct Connection: Identifiable, Codable, Equatable, Sendable {
         self.keyOverrides = Array(keyOverrides.prefix(Self.maxKeyOverrides))
         self.videoDecoding = videoDecoding
         self.passwordTypingEnabled = passwordTypingEnabled
+        self.certificateMode = certificateMode
     }
 
     // Custom decoding tolerates profiles saved before a field existed (e.g.
@@ -196,7 +202,26 @@ public struct Connection: Identifiable, Codable, Equatable, Sendable {
         // into an unverified target must never arrive switched on by a store upgrade.
         passwordTypingEnabled = try c.decodeIfPresent(Bool.self, forKey: .passwordTypingEnabled)
             ?? false
+        // Field added post-v1. Missing or unknown values (a newer build, a hand-edited
+        // store) fall back to `.ask`: a store upgrade must never weaken verification.
+        let rawCertMode = (try? c.decodeIfPresent(String.self, forKey: .certificateMode)) ?? nil
+        certificateMode = rawCertMode.flatMap(CertificateCheckMode.init(rawValue:)) ?? .ask
     }
+}
+
+// MARK: - Server certificate handling
+
+/// How a connection treats the certificate the server presents.
+public enum CertificateCheckMode: String, Codable, Equatable, Sendable, CaseIterable {
+    /// Review every certificate that isn't already trusted: a first-seen certificate
+    /// and a changed one both stop the connection until you approve them.
+    case ask
+    /// Trust a first-seen certificate automatically and remember its fingerprint.
+    /// A certificate that later CHANGES still stops the connection for review.
+    case trustFirstUse
+    /// Accept whatever certificate the server presents, without remembering or checking
+    /// it. Offers no protection against interception.
+    case ignore
 }
 
 // MARK: - F-15: keyboard layout presets + scancode overrides

@@ -104,6 +104,20 @@ public final class AppCoordinator: ObservableObject {
         objectWillChange.send()
     }
 
+    /// Pin a certificate the user supplied in the editor (an imported certificate file
+    /// or a pasted SHA-256 fingerprint) for `host:port`, replacing any existing pin. The
+    /// first connection then goes straight through if the server presents it, and a
+    /// different certificate is reviewed as a change. `fingerprintSHA256` must already
+    /// be canonical (see `CertificateFingerprint`).
+    public func trustCertificate(host: String, port: Int, fingerprintSHA256: String,
+                                 commonName: String = "", subject: String = "") {
+        trustStore.pin(CertInfo(host: host, port: port, commonName: commonName,
+                                subject: subject, issuer: "",
+                                fingerprintSHA256: fingerprintSHA256,
+                                hostMismatch: false, changed: false))
+        objectWillChange.send()
+    }
+
     /// Begin a connection on `controller`, wiring biometric retrieval per policy.
     /// `preferredLogicalSize`/`backingScale` (the app window) let Auto/Dynamic mode
     /// derive a Retina-matched remote resolution + DPI.

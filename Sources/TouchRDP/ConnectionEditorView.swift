@@ -31,6 +31,7 @@ struct ConnectionEditorView: View {
     // host/port changes so the Security section never describes a different server.
     @State private var pinnedCert: PinnedCertRecord?
     @State private var showForgetCertConfirm = false
+    @State private var showTrustCertSheet = false
     // Whether the user has typed into the credential fields yet. A new connection starts
     // blank, so the "required" warnings would otherwise greet an untouched form.
     @State private var usernameTouched = false
@@ -170,6 +171,11 @@ struct ConnectionEditorView: View {
             Button("Forget", role: .destructive) { forgetCertificate() }
         } message: {
             Text("TouchRDP will no longer trust the approved certificate for \(certHostLabel). The next connection will ask you to review the server's certificate before connecting.")
+        }
+        .sheet(isPresented: $showTrustCertSheet) {
+            TrustCertificateSheet(hostLabel: certHostLabel, current: pinnedCert) { imported in
+                trustCertificate(imported)
+            }
         }
         .onAppear {
             syncPolicyFromModel()
@@ -366,6 +372,25 @@ struct ConnectionEditorView: View {
             }
             .accessibilityLabel("RDP security protocol")
 
+            Picker("Server certificate", selection: $connection.certificateMode) {
+                ForEach(CertificateCheckMode.allCases, id: \.self) { mode in
+                    Text(mode.displayLabel).tag(mode)
+                }
+            }
+            .accessibilityLabel("How to check the server's certificate")
+            if connection.certificateMode == .ignore {
+                Label("TouchRDP won't check who it's connecting to. Anyone able to intercept the connection could pose as this server and capture your password. Only use this on a network you trust.",
+                      systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            } else {
+                Text(connection.certificateMode == .ask
+                     ? "A certificate TouchRDP hasn't seen before is shown for you to review before connecting."
+                     : "The first certificate this server presents is trusted and remembered without asking. If it ever changes, you're asked to review it.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             // The TOFU pin is keyed by host:port, not by connection id, so it
             // is shown against whatever host is currently in the field above.
             // Approving a certificate is a one-way door without this: there was
@@ -377,6 +402,8 @@ struct ConnectionEditorView: View {
                         Text("Certificate approved for \(certHostLabel)")
                             .font(.caption)
                         Spacer()
+                        Button("Replace…") { showTrustCertSheet = true }
+                            .help("Trust a different certificate for this host by importing its file or entering its fingerprint")
                         Button("Forget…") { showForgetCertConfirm = true }
                             .help("Forget this certificate so the next connection asks you to review the server's certificate again")
                             .accessibilityLabel("Forget the approved certificate for this host")
@@ -392,11 +419,34 @@ struct ConnectionEditorView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+                .opacity(connection.certificateMode == .ignore ? 0.5 : 1)
+                if connection.certificateMode == .ignore {
+                    Text("Not used while certificate checking is off.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
             } else {
-                Text("No certificate is approved for \(certHostLabel). The next connection will ask you to review the server's certificate.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                HStack(alignment: .firstTextBaseline) {
+                    Text(noPinnedCertText)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Trust a Certificate…") { showTrustCertSheet = true }
+                        .disabled(connection.host.trimmingCharacters(in: .whitespaces).isEmpty)
+                        .help("Trust this server's certificate in advance by importing its file or entering its SHA-256 fingerprint")
+                }
             }
+        }
+    }
+
+    private var noPinnedCertText: String {
+        switch connection.certificateMode {
+        case .ask:
+            return "No certificate is approved for \(certHostLabel). The next connection will ask you to review the server's certificate."
+        case .trustFirstUse:
+            return "No certificate is approved for \(certHostLabel) yet. The next connection will trust and remember whichever one the server presents."
+        case .ignore:
+            return "No certificate is approved for \(certHostLabel)."
         }
     }
 
@@ -771,6 +821,15 @@ struct ConnectionEditorView: View {
             : coordinator.pinnedCertificate(host: host, port: connection.port)
     }
 
+    private func trustCertificate(_ cert: ImportedCertificate) {
+        let host = connection.host.trimmingCharacters(in: .whitespaces)
+        guard !host.isEmpty else { return }
+        coordinator.trustCertificate(host: host, port: connection.port,
+                                     fingerprintSHA256: cert.fingerprintSHA256,
+                                     commonName: cert.commonName, subject: cert.subject)
+        refreshPinnedCert()
+    }
+
     private func forgetCertificate() {
         let host = connection.host.trimmingCharacters(in: .whitespaces)
         guard !host.isEmpty else { return }
@@ -1142,6 +1201,16 @@ enum MacKeyNames {
         119: "End", 120: "F2", 121: "Page Down", 122: "F1",
         123: "←", 124: "→", 125: "↓", 126: "↑"
     ]
+}
+
+extension CertificateCheckMode {
+    var displayLabel: String {
+        switch self {
+        case .ask:           return "Ask me to review (recommended)"
+        case .trustFirstUse: return "Trust automatically the first time"
+        case .ignore:        return "Don't check (not secure)"
+        }
+    }
 }
 
 extension DisplaySettings.ScaleMode {
