@@ -1,0 +1,53 @@
+TouchRDP PERF-9: per-thread opt-out of hardware (VideoToolbox) H.264 decoding.
+
+Upstream FreeRDP uses hardware decoding unconditionally once compiled in. Since
+3.32.0 that is FFmpeg's generic WITH_FFMPEG_HWACCEL path (WITH_VIDEOTOOLBOX is a
+deprecated alias that turns it on; on macOS the device type is VideoToolbox). Each
+GFX surface's H264_CONTEXT is created lazily inside the SurfaceCommand handler,
+with no way to pass a per-session preference through the H264 API. This adds a
+thread-local flag plus an exported setter; the client wraps
+RdpgfxClientContext::SurfaceCommand and sets the flag immediately before
+delegating (same thread, same call), so each session's decoder inherits its own
+choice. With the flag off, the decoder is opened with useHwDecoder = FALSE (pure
+software). Default (1) is upstream behaviour. Applied by Tools/build-freerdp.sh;
+Sources/CRDPBridge/rdpbridge.c dlsym()s the setter so an unpatched library still
+links and simply ignores the toggle. Ported to 3.32.1 (was against 3.31.1).
+
+--- a/libfreerdp/codec/h264_ffmpeg.c
++++ b/libfreerdp/codec/h264_ffmpeg.c
+@@ -40,6 +40,22 @@
+     but your version of libavutil is too old !Disabling.
+ #undef WITH_FFMPEG_HWACCEL
+ #endif
++#endif
++
++#ifdef WITH_FFMPEG_HWACCEL
++/* TouchRDP (Tools/freerdp-patches): per-thread opt-out of hardware H.264 decoding.
++ * Upstream decodes on the hardware unconditionally once compiled in. The H264_CONTEXT
++ * is created lazily inside the GFX surface-command handler, so a client that wraps
++ * RdpgfxClientContext::SurfaceCommand can set this immediately before delegating —
++ * same thread, same call — and each session's decoder inherits its own preference
++ * without any change to the H264 API. Default 1 == upstream behaviour. */
++static _Thread_local int s_videotoolbox_preferred = 1;
++
++FREERDP_API void freerdp_h264_set_thread_videotoolbox_preference(int enabled);
++void freerdp_h264_set_thread_videotoolbox_preference(int enabled)
++{
++	s_videotoolbox_preferred = enabled ? 1 : 0;
++}
+ #endif
+ 
+ /* Fallback support for older libavcodec versions */
+@@ -1377,6 +1393,12 @@
+ #endif
+ 
+ #ifdef WITH_FFMPEG_HWACCEL
++		if (!sys->hwctx && sys->useHwDecoder && !s_videotoolbox_preferred)
++		{
++			WLog_Print(h264->log, WLOG_INFO,
++			           "Hardware H264 decoding disabled for this session, using software");
++			sys->useHwDecoder = FALSE;
++		}
+ 		if (sys->useHwDecoder && (sys->type != AV_HWDEVICE_TYPE_NONE))
+ 			WLog_Print(h264->log, WLOG_DEBUG,
+ 			           "Trying to initialize hardware backed decoder of type %s",

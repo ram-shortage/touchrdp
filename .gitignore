@@ -1,0 +1,44 @@
+# Build products
+.build/
+.swiftpm/
+*.o
+*.swiftmodule
+
+# SwiftPM / swift-build scratch left in the working tree
+TemporaryDirectory.*/
+swift-generated-sources/
+*.lock
+
+# Assembled / packaged app artifacts (regenerate with Tools/build-app.sh and package-portable.sh)
+*.app/
+TouchRDP-portable.zip
+TouchRDP-INSTALL.txt
+
+# Spike compiled binaries (source is kept; binaries are not)
+Spikes/**/probe
+Spikes/**/spike
+Spikes/**/vault-spike
+
+# macOS
+.DS_Store
+*.dSYM/
+
+# Editor
+.vscode/
+*.xcuserstate
+
+# Redistributable disk image (regenerate with Tools/package-app.sh)
+*.dmg
+
+# Pinned from-source FreeRDP with VideoToolbox decode (regenerate with Tools/build-freerdp.sh)
+Vendor/
+
+# Local agent notes and private drafts (kept on disk, never committed)
+CLAUDE.md
+.claude/
+docs/PROMO.md
+
+# Local build logs and secrets
+*.log
+.env
+.env.*

@@ -1,0 +1,26 @@
+TouchRDP
+Copyright 2026 The TouchRDP Authors
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Release builds bundle the following third-party libraries, each under its own licence:
+
+- FreeRDP 3 and WinPR (https://www.freerdp.com) — Apache License 2.0
+- OpenSSL 3, libcrypto and libssl (https://www.openssl.org) — Apache License 2.0
+- FFmpeg: libavcodec, libavdevice, libavfilter, libavformat, libavutil, libswresample,
+  libswscale (https://ffmpeg.org) — built with GPL components; GPL v2 or later
+- x264 (https://www.videolan.org/developers/x264.html) — GPL v2 or later
+- x265 (https://www.x265.org) — GPL v2 or later
+- LAME, libmp3lame (https://lame.sourceforge.io) — LGPL v2 or later
+- mpg123, libmpg123 (https://www.mpg123.de) — LGPL v2.1
+- dav1d (https://code.videolan.org/videolan/dav1d) — BSD 2-Clause
+- SVT-AV1 (https://gitlab.com/AOMediaCodec/SVT-AV1) — BSD 3-Clause Clear
+- libvpx (https://www.webmproject.org) — BSD 3-Clause
+- libvmaf (https://github.com/Netflix/vmaf) — BSD-2-Clause-Patent
+- Opus (https://opus-codec.org) — BSD 3-Clause
+- XZ Utils, liblzma (https://tukaani.org/xz/) — 0BSD
+- Jansson (https://github.com/akheron/jansson) — MIT
+- uriparser (https://uriparser.github.io) — BSD 3-Clause
+
+Because the bundled FFmpeg includes GPL components, the distributed application as a
+whole is subject to the GPL. The TouchRDP source code in this repository is Apache 2.0.

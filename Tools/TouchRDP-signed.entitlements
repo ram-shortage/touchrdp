@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Entitlements for the TIER-1 (Secure-Enclave) path. Use ONLY when signing with a
+     real "Apple Development" identity (free personal team is fine) + provisioning
+     profile. Do NOT use with ad-hoc signing — AMFI will SIGKILL the process (see
+     docs/ENABLE_SECURE_ENCLAVE.md). The plain ad-hoc local build signs with NO entitlements. -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>keychain-access-groups</key>
+    <array>
+        <string>$(AppIdentifierPrefix)com.touchrdp.app</string>
+    </array>
+</dict>
+</plist>
