@@ -963,6 +963,9 @@ struct ConnectionDetailView: View {
                     DetailRow(label: "User", value: connection.username)
                 }
                 DetailRow(label: "Security", value: connection.security.displayLabel)
+                if connection.certificateMode == .ignore {
+                    DetailRow(label: "Certificate", value: "Not checked")
+                }
                 DetailRow(label: "Display", value: "\(connection.display.width)×\(connection.display.height)")
                 DetailRow(label: "Password", value: hasPassword ? "Saved (\(coordinator.vaultTierLabel))" : "Not saved")
             }

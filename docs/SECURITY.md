@@ -9,7 +9,7 @@ TouchRDP's main job is to keep a Windows password safe while still letting you c
 | Someone at your unlocked Mac connects without permission | Yes | Touch ID is required before any saved password is released. |
 | Password stolen from disk | Yes | Passwords live only in the Keychain. Connection profiles contain no secrets. |
 | Password leaked through the clipboard, logs or crash dumps | Yes | The password is never put on the clipboard or logged, and the bridge wipes its copy right after sign-in. |
-| Man-in-the-middle on the connection | Yes | NLA (TLS plus CredSSP) by default, and certificates pinned on first use with an explicit review when they change. |
+| Man-in-the-middle on the connection | Yes, unless you turn checking off | NLA (TLS plus CredSSP) by default, and certificates pinned on first use with an explicit review when they change. A connection set to "Don't check" has no protection here. |
 | Malware running as you reads saved passwords | Partly | Covered on a signed build (Secure Enclave). Not covered on an unsigned build; see Limitations. |
 | A hostile Windows host reads or writes your files | Yes, opt-in | Folder sharing is off by default and limited to one folder you pick. |
 | A hostile host listens through your microphone | Yes | Only audio playback is enabled; the microphone is never redirected. |
@@ -52,6 +52,16 @@ A connection can have a separate password for its RD Gateway. It's stored as a s
 - **First connection:** the certificate's fingerprint, issuer and any host-name mismatch are shown for you to review. It's only pinned once you approve it, so a first-connection attack isn't silently accepted.
 - **Later connections:** accepted only if the fingerprint matches the pinned one.
 - **Changed certificate:** rejected by default. You can compare the old and new details and approve it explicitly.
+- **Trusting a certificate in advance:** in the connection editor, **Trust a Certificate…** pins a certificate before the first connection, from its file (`.cer`, `.crt`, `.pem` or `.der`, binary or Base-64) or its SHA-256 fingerprint. It's stored exactly as if you had approved it in the review, so the first connection goes straight through and a different certificate is still rejected as a change. Windows shows a SHA-1 thumbprint by default; TouchRDP only accepts SHA-256 and says so if you paste a SHA-1 one.
+- **Per-connection checking mode** (Connection tab → Security → Server certificate):
+
+  | Mode | First-seen certificate | Changed certificate |
+  |------|------------------------|---------------------|
+  | Ask me to review (default) | Shown for review | Rejected, shown for review |
+  | Trust automatically the first time | Trusted and pinned without asking, even if the name doesn't match | Rejected, shown for review |
+  | Don't check | Accepted, not pinned | Accepted, not pinned |
+
+  "Trust automatically" protects every connection after the first; the first one is only as safe as the network it's made on. "Don't check" accepts any certificate on every connection and never reads or changes your pins, so switching back restores exactly the pins you had. The connection's details show **Certificate: Not checked** while it's set.
 - FreeRDP only exposes the subject, issuer and SHA-256 fingerprint, not the full certificate, so validity dates and serial numbers can't be shown.
 
 ## Reconnects
@@ -101,7 +111,8 @@ On the network this is identical to typing the password by hand. The bridge zero
 4. **Multi-factor sign-in.** The app supplies only the password. Any additional factor has to be completed in the session.
 5. **Type Password can't check its target.** See above. Leave it off for hosts where a mistyped password would be a problem.
 6. **Folder sharing is read/write.** A compromised host can change or delete anything in the shared folder. Share a small, dedicated folder.
-7. **Third-party code.** Releases bundle a pinned FreeRDP built from source, plus FFmpeg and OpenSSL from Homebrew. Keep FreeRDP updated by changing the pin in `Tools/build-freerdp.sh`.
+7. **Turning certificate checking off.** A connection set to "Don't check" can't tell the real server from an impostor, and with NLA your password is sent to whichever one answers. Use it only on networks you control, and prefer trusting the certificate in advance.
+8. **Third-party code.** Releases bundle a pinned FreeRDP built from source, plus FFmpeg and OpenSSL from Homebrew. Keep FreeRDP updated by changing the pin in `Tools/build-freerdp.sh`.
 
 ## Checks to run before a release
 
@@ -109,4 +120,5 @@ On the network this is identical to typing the password by hand. The bridge zero
 - [ ] No password appears in logs, standard output or the clipboard after connecting.
 - [ ] Keychain items are device-only and not synced.
 - [ ] A changed certificate is rejected and goes through the review flow.
+- [ ] A certificate trusted in advance (file and pasted fingerprint) connects without a review; a different one is reviewed as a change.
 - [ ] A wrong password doesn't trigger automatic reconnects.

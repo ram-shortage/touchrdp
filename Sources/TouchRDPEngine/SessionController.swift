@@ -124,6 +124,36 @@ public final class SessionController: ObservableObject, RDPSessionDelegate {
     private var remoteFileGeneration = 0
     // nonisolated: read synchronously from the RDP thread inside sessionVerifyCertificate.
     private nonisolated let trustStore: CertificateTrustStore
+    // The active connection's certificate mode, copied here on every connect attempt
+    // because the verify callback runs on the RDP thread and can't read `connection`.
+    private nonisolated let certificatePolicyLock = OSAllocatedUnfairLock(initialState: CertificatePolicy())
+
+    /// A connection's certificate mode and the endpoints it was chosen for. The relaxed
+    /// modes cover only the host and gateway the user typed: a server redirect (session
+    /// broker, load balancer) can make FreeRDP verify a certificate for a host the
+    /// SERVER named, and trust-on-first-use pins are shared by every connection to
+    /// that host:port — so anything else gets the normal review.
+    struct CertificatePolicy: Sendable {
+        var mode: CertificateCheckMode = .ask
+        var endpoints: Set<String> = []
+
+        init() {}
+        init(_ connection: Connection) {
+            mode = connection.certificateMode
+            endpoints = [Self.key(connection.host, connection.port)]
+            if let gw = connection.gateway, !gw.hostname.isEmpty {
+                endpoints.insert(Self.key(gw.hostname, gw.port))
+            }
+        }
+
+        func mode(for info: CertInfo) -> CertificateCheckMode {
+            endpoints.contains(Self.key(info.host, info.port)) ? mode : .ask
+        }
+
+        private static func key(_ host: String, _ port: Int) -> String {
+            "\(host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()):\(port)"
+        }
+    }
     // F-6: the provider releases BOTH the primary and (when configured) the gateway
     // secret under one biometric authentication; the controller retains neither.
     private var passwordProvider: ((CredentialRequestReason) async throws -> ConnectionSecrets)?
@@ -273,6 +303,8 @@ public final class SessionController: ObservableObject, RDPSessionDelegate {
         // user-disconnect flag must never make the task below bail silently and strand
         // the UI on "Connecting…". Callers that mean it (retry/accept) clear it too.
         userInitiatedDisconnect = false
+        let certificatePolicy = CertificatePolicy(connection)
+        certificatePolicyLock.withLock { $0 = certificatePolicy }
         // The FreeRDP bridge is single-use: a second connect on the same session
         // no-ops (and would leave us stuck on "connecting"). Use a fresh session for
         // every attempt after the first.
@@ -827,11 +859,11 @@ public final class SessionController: ObservableObject, RDPSessionDelegate {
                                  previousPin: PinnedCertRecord? = nil) {
         let candidate = PendingCertReview(info: info, kind: kind, previousPin: previousPin)
         if let current = pendingCertReview, current.isSameReview(as: candidate) {
-            Self.certLog.notice("raise: same review already pending (epoch \(current.epoch)) — no-op")
+            Self.certLog.notice("raise: same review already pending (epoch \(current.epoch, privacy: .public)) — no-op")
             return
         }
         certReviewEpoch += 1
-        Self.certLog.notice("raise: \(String(describing: kind)) for \(info.host):\(info.port) epoch \(self.certReviewEpoch) state=\(String(describing: self.state))")
+        Self.certLog.notice("raise: \(String(describing: kind), privacy: .public) for \(info.host, privacy: .public):\(info.port, privacy: .public) epoch \(self.certReviewEpoch, privacy: .public) state=\(String(describing: self.state), privacy: .public)")
         let review = PendingCertReview(info: info, kind: kind, previousPin: previousPin,
                                        epoch: certReviewEpoch)
         pendingCertReview = review
@@ -851,20 +883,26 @@ public final class SessionController: ObservableObject, RDPSessionDelegate {
         // Guard against a cert remembered for a host the connection no longer points at.
         if let last = lastRejectedCert, let connection,
            last.info.host == connection.host, last.info.port == connection.port {
-            Self.certLog.notice("review: re-opening remembered cert for \(last.info.host)")
+            Self.certLog.notice("review: re-opening remembered cert for \(last.info.host, privacy: .public)")
             raiseCertReview(info: last.info, kind: last.kind, previousPin: last.previousPin)
             return
         }
-        Self.certLog.notice("review: nothing remembered (last=\(self.lastRejectedCert?.info.host ?? "nil") conn=\(self.connection?.host ?? "nil")) — falling back to retry")
+        Self.certLog.notice("review: nothing remembered (last=\(self.lastRejectedCert?.info.host ?? "nil", privacy: .public) conn=\(self.connection?.host ?? "nil", privacy: .public)) — falling back to retry")
         retry()
     }
 
     /// User reviewed and accepted the pending certificate (first-use, host mismatch, or
-    /// changed): pin it and reconnect. This is the ONLY path that pins a cert.
+    /// changed): pin it and reconnect. Apart from a connection the user set to trust
+    /// on first use, and a certificate they imported in the editor, this is the only
+    /// path that pins a cert.
     public func acceptPendingCertAndReconnect() {
         guard let review = pendingCertReview else { return }
-        Self.certLog.notice("accept: pinning \(review.info.host):\(review.info.port)")
+        Self.certLog.notice("accept: pinning \(review.info.host, privacy: .public):\(review.info.port, privacy: .public) fp=\(review.info.fingerprintSHA256, privacy: .public)")
         trustStore.pin(review.info)
+        // Read the pin straight back so a log shows whether the approval actually took.
+        let after = trustStore.evaluate(review.info)
+        let storeError = (trustStore as? FileCertificateTrustStore)?.lastError
+        Self.certLog.notice("accept: store now says \(String(describing: after), privacy: .public) storeError=\(storeError.map { String(describing: $0) } ?? "none", privacy: .public)")
         pendingCertReview = nil
         lastRejectedCert = nil   // #32: trusted now — nothing left to review
         // #32: Cancel → Review Certificate → Trust & Connect. The Cancel went through
@@ -885,7 +923,7 @@ public final class SessionController: ObservableObject, RDPSessionDelegate {
     /// #32: `lastRejectedCert` deliberately SURVIVES a decline — dismissing the sheet is
     /// exactly the case where the user then reaches for "Review Certificate" again.
     public func declinePendingCert() {
-        Self.certLog.notice("decline: \(self.pendingCertReview?.info.host ?? "nil")")
+        Self.certLog.notice("decline: \(self.pendingCertReview?.info.host ?? "nil", privacy: .public)")
         pendingCertReview = nil
         // The sheet can be declined before the bridge's failure callback reaches
         // the main queue. Keep the certificate recovery action available even then.
@@ -991,11 +1029,32 @@ public final class SessionController: ObservableObject, RDPSessionDelegate {
     // only return a yes/no, so anything needing user input is REJECTED here and surfaced
     // via `pendingCertReview` for an explicit approve-and-reconnect flow.
     public nonisolated func sessionVerifyCertificate(_ info: CertInfo) -> Bool {
+        let mode = certificatePolicyLock.withLock { $0 }.mode(for: info)
+        if mode == .ignore {
+            // The user chose "Don't verify" for this connection: accept without
+            // consulting or touching the trust store, so turning the mode off later
+            // brings back exactly the pins that were there before.
+            Self.certLog.notice("verify: \(info.host, privacy: .public):\(info.port, privacy: .public) accepted unverified (mode=ignore)")
+            return true
+        }
         let decision = trustStore.evaluate(info)
-        Self.certLog.notice("verify: \(info.host):\(info.port) fp=\(info.fingerprintSHA256.prefix(11))… mismatch=\(info.hostMismatch) -> \(String(describing: decision))")
+        // Certificate details are public data (the server sends them to anyone who
+        // connects), so they're logged in full to make trust problems diagnosable with
+        // `log stream --predicate 'subsystem == "com.touchrdp.app"'`.
+        let pinned = trustStore.pinnedRecord(host: info.host, port: info.port)?.fingerprintSHA256 ?? "none"
+        Self.certLog.notice("verify: \(info.host, privacy: .public):\(info.port, privacy: .public) cn=\(info.commonName, privacy: .public) fp=\(info.fingerprintSHA256, privacy: .public) pinned=\(pinned, privacy: .public) mismatch=\(info.hostMismatch, privacy: .public) changedFlag=\(info.changed, privacy: .public) mode=\(mode.rawValue, privacy: .public) -> \(String(describing: decision), privacy: .public)")
         switch decision {
         case .trusted:
             // Already pinned by an earlier explicit approval. Honor it.
+            return true
+        case .unknown where mode == .trustFirstUse:
+            // The user opted into automatic trust-on-first-use for this connection:
+            // remember this certificate so that any later CHANGE still stops for
+            // review. A name mismatch is accepted too — connecting by IP address to a
+            // self-signed Windows certificate always mismatches, and prompting for it
+            // would defeat the mode. The pin is written here, on the RDP thread; the
+            // store is lock-guarded and does its file write outside the lock.
+            trustStore.pin(info)
             return true
         case .unknown:
             // First use (TOFU): do NOT silently pin/accept. Require explicit review so a

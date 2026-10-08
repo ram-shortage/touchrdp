@@ -10,7 +10,7 @@ It is written in Swift (SwiftUI and AppKit) on top of [FreeRDP 3](https://www.fr
 - Touch ID before any saved password is released. Each connection can prompt every time, or reuse a recent Touch ID for up to five minutes.
 - Passwords are kept only in the Keychain. Connection profiles on disk never contain secrets.
 - On a signed build, passwords are sealed by the Secure Enclave and tied to your currently enrolled fingerprints ([details](docs/ENABLE_SECURE_ENCLAVE.md)).
-- Server certificates are pinned the first time you approve them. A changed certificate is rejected until you review and accept it.
+- Server certificates are pinned the first time you approve them. A changed certificate is rejected until you review and accept it. You can also trust a server's certificate in advance (import its file or paste its SHA-256 fingerprint), or set a connection to trust its first certificate automatically or not check at all.
 - Optional separate RD Gateway password, released by the same single Touch ID prompt.
 - Optional **Type Password** button for a remote lock screen. It is off by default and needs a fresh Touch ID every time.
 
